@@ -207,31 +207,60 @@ public class CallActivity extends Activity {
         if (ttsReady) speak();
     }
 
-    /** Deep, calm British male "assistant" voice. Falls back to any English voice. */
+    /** Deep male "assistant" voice. Uses the voice chosen in the app if any. */
     private void setAssistantVoice() {
-        Voice best = null;
-        int bestScore = -1;
+        applyVoice(tts, CallHelper.prefs(this));
+    }
+
+    static final String KEY_VOICE = "voice_name";
+    static final String[] MALE = {"en-gb-x-rjs", "en-gb-x-gbd", "en-gb-x-gbb", "en-us-x-iom", "en-us-x-iol",
+            "en-us-x-tpd", "en-in-x-end", "en-in-x-ene", "en-au-x-aud", "en-au-x-aub"};
+
+    static boolean isMale(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        for (String m : MALE) if (n.startsWith(m)) return true;
+        return (n.contains("male") && !n.contains("female")) || n.contains("smtm") || n.contains("#male");
+    }
+
+    /** English voices, male ones first, offline-installed preferred. */
+    static java.util.List<Voice> englishVoices(TextToSpeech tts) {
+        java.util.List<Voice> out = new java.util.ArrayList<>();
         try {
-            String[] preferred = {"en-gb-x-gbd", "en-gb-x-rjs", "en-gb-x-gbb", "en-us-x-iol", "en-us-x-iom", "en-in-x-end", "en-in-x-ene"};
             for (Voice v : tts.getVoices()) {
                 if (v == null || v.getLocale() == null || !"en".equals(v.getLocale().getLanguage())) continue;
-                if (v.isNetworkConnectionRequired() && v.getFeatures() != null && v.getFeatures().contains("notInstalled")) continue;
-                String n = v.getName().toLowerCase(Locale.ROOT);
-                int score = 0;
-                for (int i = 0; i < preferred.length; i++) if (n.startsWith(preferred[i])) score = 100 - i * 5;
-                if (score == 0 && n.contains("male") && !n.contains("female")) score = 40;
-                if (score == 0 && "GB".equals(v.getLocale().getCountry())) score = 20;
-                if (!v.isNetworkConnectionRequired()) score += 3; // works offline
-                if (score > bestScore) { bestScore = score; best = v; }
+                if (v.getFeatures() != null && v.getFeatures().contains("notInstalled")) continue;
+                out.add(v);
             }
         } catch (Exception ignored) { }
+        java.util.Collections.sort(out, (a, b) -> score(b) - score(a));
+        return out;
+    }
+
+    private static int score(Voice v) {
+        String n = v.getName().toLowerCase(Locale.ROOT);
+        int s = 0;
+        for (int i = 0; i < MALE.length; i++) if (n.startsWith(MALE[i])) { s = 100 - i * 3; break; }
+        if (s == 0 && isMale(n)) s = 60;
+        if ("GB".equals(v.getLocale().getCountry())) s += 5;
+        if (!v.isNetworkConnectionRequired()) s += 3;
+        return s;
+    }
+
+    static void applyVoice(TextToSpeech tts, android.content.SharedPreferences p) {
+        String saved = p.getString(KEY_VOICE, "");
+        Voice best = null;
+        boolean chosen = false;
+        java.util.List<Voice> list = englishVoices(tts);
+        for (Voice v : list) if (v.getName().equals(saved)) { best = v; chosen = true; break; }
+        if (best == null && !list.isEmpty()) best = list.get(0);
         if (best != null) tts.setVoice(best);
         else {
             int r = tts.setLanguage(Locale.UK);
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.ENGLISH);
         }
-        tts.setPitch(0.82f);      // deeper
-        tts.setSpeechRate(0.92f); // calm, clear
+        boolean male = best != null && isMale(best.getName());
+        tts.setPitch(chosen || male ? 0.85f : 0.68f); // no male voice found -> make it much deeper
+        tts.setSpeechRate(0.92f);
     }
 
     private String greeting() {
