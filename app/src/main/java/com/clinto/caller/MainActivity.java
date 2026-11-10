@@ -30,6 +30,9 @@ public class MainActivity extends Activity {
 
     private TextView status;
     private SharedPreferences p;
+    private android.speech.tts.TextToSpeech tts;
+    private boolean ttsOk = false;
+    private TextView voiceName;
 
     @Override
     protected void onCreate(Bundle saved) {
@@ -130,6 +133,26 @@ public class MainActivity extends Activity {
             }
         }));
 
+        // --- Voice ---
+        root.addView(label("Assistant voice", 16, "#E6F7FF", true));
+        voiceName = label("Loading voices\u2026", 14, "#29D3FF", false);
+        voiceName.setTypeface(Typeface.MONOSPACE);
+        root.addView(voiceName);
+        tts = new android.speech.tts.TextToSpeech(this, st -> {
+            if (st == android.speech.tts.TextToSpeech.SUCCESS) {
+                ttsOk = true;
+                runOnUiThread(() -> { CallActivity.applyVoice(tts, p); showVoice(); });
+            }
+        });
+        root.addView(button("\ud83c\udf99 Next voice (try male voices)", "#0F2633", v -> nextVoice()));
+        root.addView(button("Get more voices (Google voice data)", "#0F2633", v -> {
+            try { startActivity(new Intent("com.android.settings.TTS_SETTINGS")); }
+            catch (Exception e) {
+                try { startActivity(new Intent(android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)); }
+                catch (Exception e2) { Toast.makeText(this, "Open Settings \u2192 Text-to-speech", Toast.LENGTH_LONG).show(); }
+            }
+        }));
+
         // --- Step 3: on/off + test ---
         root.addView(label("3. Test", 16, "#E6F7FF", true));
         Switch on = new Switch(this);
@@ -179,6 +202,34 @@ public class MainActivity extends Activity {
                 + (on ? "🟢 Calls ON" : "⚪ Calls OFF")
                 + (last > 0 ? "\nLast checked: " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(last)) : "")
                 + (connected && notif && full && on ? "\nReady! New requests will ring like a call." : ""));
+    }
+
+    private void nextVoice() {
+        if (!ttsOk) { Toast.makeText(this, "Voice engine loading\u2026", Toast.LENGTH_SHORT).show(); return; }
+        java.util.List<android.speech.tts.Voice> list = CallActivity.englishVoices(tts);
+        if (list.isEmpty()) { Toast.makeText(this, "No English voices. Tap 'Get more voices'.", Toast.LENGTH_LONG).show(); return; }
+        String cur = p.getString(CallActivity.KEY_VOICE, "");
+        int idx = -1;
+        for (int i = 0; i < list.size(); i++) if (list.get(i).getName().equals(cur)) idx = i;
+        android.speech.tts.Voice v = list.get((idx + 1) % list.size());
+        p.edit().putString(CallActivity.KEY_VOICE, v.getName()).apply();
+        CallActivity.applyVoice(tts, p);
+        showVoice();
+        tts.speak("Hello boss. Kotha request vachindi.", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "try");
+    }
+
+    private void showVoice() {
+        try {
+            android.speech.tts.Voice v = tts.getVoice();
+            if (v == null) { voiceName.setText("Default voice"); return; }
+            voiceName.setText("\u25b6 " + v.getName() + (CallActivity.isMale(v.getName()) ? "  (male)" : ""));
+        } catch (Exception e) { voiceName.setText("Default voice"); }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (tts != null) { tts.stop(); tts.shutdown(); }
+        super.onDestroy();
     }
 
     private void openAppSettings() {
