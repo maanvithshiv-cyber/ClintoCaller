@@ -15,6 +15,8 @@ public class ClintoListener extends NotificationListenerService {
     public void onNotificationPosted(StatusBarNotification sbn) {
         if (sbn == null || getPackageName().equals(sbn.getPackageName())) return;
         if (!CallHelper.prefs(this).getBoolean(CallHelper.KEY_ENABLED, true)) return;
+        // Netlify direct mode is on -> don't ring twice from the Gmail notification
+        if (!CallHelper.prefs(this).getString(WatchService.KEY_TOKEN, "").isEmpty()) return;
 
         Notification n = sbn.getNotification();
         if (n == null || n.extras == null) return;
