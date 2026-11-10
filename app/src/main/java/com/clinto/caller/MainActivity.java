@@ -39,15 +39,26 @@ public class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(22), dp(36), dp(22), dp(36));
-        root.setBackgroundColor(Color.parseColor("#F7F2E9"));
+        root.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.parseColor("#02060B"), Color.parseColor("#071A26"), Color.parseColor("#02060B")}));
 
-        root.addView(label("Clinto Caller", 28, "#1C1B19", true));
-        root.addView(label("When a customer sends a request on clinto.online, your phone rings like a call. Lift it to hear the details.", 15, "#6E6A62", false));
+        HudView hud = new HudView(this);
+        hud.setLabel("CLINTO");
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(dp(190), dp(190));
+        hlp.gravity = Gravity.CENTER_HORIZONTAL;
+        root.addView(hud, hlp);
+        TextView name = label("CLINTO CALLER", 26, "#FFFFFF", true);
+        name.setGravity(Gravity.CENTER);
+        name.setLetterSpacing(0.2f);
+        root.addView(name);
+        root.addView(label("When a customer sends a request on clinto.online, your phone rings like a call. Lift it to hear the details.", 15, "#7FA3B5", false));
 
-        status = label("", 15, "#1C1B19", true);
+        status = label("", 15, "#CFEFFF", true);
+        status.setTypeface(Typeface.MONOSPACE);
         status.setPadding(dp(14), dp(12), dp(14), dp(12));
         GradientDrawable sb = new GradientDrawable();
-        sb.setColor(Color.WHITE);
+        sb.setColor(Color.parseColor("#0B1C26"));
+        sb.setStroke(dp(1), Color.parseColor("#6629D3FF"));
         sb.setCornerRadius(dp(12));
         status.setBackground(sb);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, -2);
@@ -55,11 +66,13 @@ public class MainActivity extends Activity {
         root.addView(status, slp);
 
         // --- Step 1: connect Netlify ---
-        root.addView(label("1. Connect to Netlify (one time)", 16, "#1C1B19", true));
-        root.addView(label("app.netlify.com → profile (top right) → User settings → Applications → Personal access tokens → New access token → copy and paste here.", 13, "#6E6A62", false));
+        root.addView(label("1. Connect to Netlify (one time)", 16, "#E6F7FF", true));
+        root.addView(label("app.netlify.com → profile (top right) → User settings → Applications → Personal access tokens → New access token → copy and paste here.", 13, "#7FA3B5", false));
         EditText tok = new EditText(this);
         tok.setHint("Paste Netlify token");
         tok.setSingleLine(true);
+        tok.setTextColor(Color.WHITE);
+        tok.setHintTextColor(Color.parseColor("#5F8597"));
         tok.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         if (!p.getString(WatchService.KEY_TOKEN, "").isEmpty()) tok.setHint("Connected ✓ (paste a new token to change)");
         root.addView(tok);
@@ -92,12 +105,12 @@ public class MainActivity extends Activity {
         }));
 
         // --- Step 2: permissions ---
-        root.addView(label("2. Permissions", 16, "#1C1B19", true));
-        root.addView(button("Allow app notifications", "#1C1B19", v -> {
+        root.addView(label("2. Permissions", 16, "#E6F7FF", true));
+        root.addView(button("Allow app notifications", "#0F2633", v -> {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
             else openAppSettings();
         }));
-        root.addView(button("Allow full screen calls", "#1C1B19", v -> {
+        root.addView(button("Allow full screen calls", "#0F2633", v -> {
             if (Build.VERSION.SDK_INT >= 34) {
                 try {
                     startActivity(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
@@ -107,7 +120,7 @@ public class MainActivity extends Activity {
             }
             Toast.makeText(this, "Already allowed on this phone", Toast.LENGTH_SHORT).show();
         }));
-        root.addView(button("Keep running in background (battery)", "#1C1B19", v -> {
+        root.addView(button("Keep running in background (battery)", "#0F2633", v -> {
             try {
                 startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                         Uri.parse("package:" + getPackageName())));
@@ -118,10 +131,11 @@ public class MainActivity extends Activity {
         }));
 
         // --- Step 3: on/off + test ---
-        root.addView(label("3. Test", 16, "#1C1B19", true));
+        root.addView(label("3. Test", 16, "#E6F7FF", true));
         Switch on = new Switch(this);
         on.setText("Calls ON");
         on.setTextSize(16);
+        on.setTextColor(Color.WHITE);
         on.setChecked(p.getBoolean(CallHelper.KEY_ENABLED, true));
         on.setOnCheckedChangeListener((b, c) -> {
             p.edit().putBoolean(CallHelper.KEY_ENABLED, c).apply();
@@ -190,7 +204,8 @@ public class MainActivity extends Activity {
         b.setTextSize(15);
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.parseColor(color));
-        bg.setCornerRadius(dp(12));
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), Color.parseColor("#8829D3FF"));
         b.setBackground(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(52));
         lp.setMargins(0, dp(6), 0, dp(6));
