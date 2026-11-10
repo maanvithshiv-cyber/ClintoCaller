@@ -25,6 +25,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import android.speech.tts.Voice;
+
+import java.util.Calendar;
 import java.util.Locale;
 
 /** Full screen "incoming call". Lift = stop ringing and read the request aloud. */
@@ -52,8 +55,7 @@ public class CallActivity extends Activity {
         tts = new TextToSpeech(this, st -> {
             if (st == TextToSpeech.SUCCESS) {
                 teluguOk = tts.isLanguageAvailable(TELUGU) >= TextToSpeech.LANG_AVAILABLE;
-                setEnglish();
-                tts.setSpeechRate(0.9f);
+                setAssistantVoice();
                 ttsReady = true;
                 if (answered) speak();
             }
@@ -158,26 +160,49 @@ public class CallActivity extends Activity {
         if (ttsReady) speak();
     }
 
-    private void setEnglish() {
-        int r = tts.setLanguage(ENGLISH_IN);
-        if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.ENGLISH);
+    /** Deep, calm British male "assistant" voice. Falls back to any English voice. */
+    private void setAssistantVoice() {
+        Voice best = null;
+        int bestScore = -1;
+        try {
+            String[] preferred = {"en-gb-x-gbd", "en-gb-x-rjs", "en-gb-x-gbb", "en-us-x-iol", "en-us-x-iom", "en-in-x-end", "en-in-x-ene"};
+            for (Voice v : tts.getVoices()) {
+                if (v == null || v.getLocale() == null || !"en".equals(v.getLocale().getLanguage())) continue;
+                if (v.isNetworkConnectionRequired() && v.getFeatures() != null && v.getFeatures().contains("notInstalled")) continue;
+                String n = v.getName().toLowerCase(Locale.ROOT);
+                int score = 0;
+                for (int i = 0; i < preferred.length; i++) if (n.startsWith(preferred[i])) score = 100 - i * 5;
+                if (score == 0 && n.contains("male") && !n.contains("female")) score = 40;
+                if (score == 0 && "GB".equals(v.getLocale().getCountry())) score = 20;
+                if (!v.isNetworkConnectionRequired()) score += 3; // works offline
+                if (score > bestScore) { bestScore = score; best = v; }
+            }
+        } catch (Exception ignored) { }
+        if (best != null) tts.setVoice(best);
+        else {
+            int r = tts.setLanguage(Locale.UK);
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) tts.setLanguage(Locale.ENGLISH);
+        }
+        tts.setPitch(0.82f);      // deeper
+        tts.setSpeechRate(0.92f); // calm, clear
+    }
+
+    private String greeting() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (h < 12) return "Good morning, boss.";
+        if (h < 17) return "Good afternoon, boss.";
+        return "Good evening, boss.";
     }
 
     private void speak() {
         if (!ttsReady) return;
         tts.stop();
-        // 1) greeting: Telugu voice if the phone has it, otherwise the same words in English voice
-        if (teluguOk) {
-            tts.setLanguage(TELUGU);
-            tts.speak("హలో బాస్, కొత్త రిక్వెస్ట్ వచ్చింది.", TextToSpeech.QUEUE_FLUSH, null, "greet");
-        } else {
-            setEnglish();
-            tts.speak("Hello boss, kotha request vachindi.", TextToSpeech.QUEUE_FLUSH, null, "greet");
-        }
-        // 2) details in English (names, numbers read clearly)
-        setEnglish();
-        tts.playSilentUtterance(500, TextToSpeech.QUEUE_ADD, "gap");
+        setAssistantVoice();
+        tts.speak(greeting() + " Kotha request vachindi.", TextToSpeech.QUEUE_FLUSH, null, "greet");
+        tts.playSilentUtterance(600, TextToSpeech.QUEUE_ADD, "gap1");
         tts.speak(CallHelper.speakable(requestText), TextToSpeech.QUEUE_ADD, null, "details");
+        tts.playSilentUtterance(500, TextToSpeech.QUEUE_ADD, "gap2");
+        tts.speak("That's all for now, boss.", TextToSpeech.QUEUE_ADD, null, "end");
     }
 
     private void decline() {
