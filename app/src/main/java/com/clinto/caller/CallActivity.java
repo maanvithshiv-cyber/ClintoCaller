@@ -26,6 +26,11 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import android.speech.tts.Voice;
+import android.speech.tts.UtteranceProgressListener;
+import android.animation.ObjectAnimator;
+import android.animation.PropertyValuesHolder;
+import android.animation.ValueAnimator;
+import android.graphics.drawable.LayerDrawable;
 
 import java.util.Calendar;
 import java.util.Locale;
@@ -41,6 +46,8 @@ public class CallActivity extends Activity {
     private String requestText = "";
     private TextView status, details;
     private LinearLayout ringButtons, talkButtons;
+    private HudView hud;
+    private TextView title;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -56,6 +63,11 @@ public class CallActivity extends Activity {
             if (st == TextToSpeech.SUCCESS) {
                 teluguOk = tts.isLanguageAvailable(TELUGU) >= TextToSpeech.LANG_AVAILABLE;
                 setAssistantVoice();
+                tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                    @Override public void onStart(String id) { runOnUiThread(() -> { if (hud != null) hud.setTalking(true); }); }
+                    @Override public void onDone(String id) { if ("end".equals(id)) runOnUiThread(() -> { if (hud != null) hud.setTalking(false); status.setText("Done. Tap Repeat to hear again."); }); }
+                    @Override public void onError(String id) { runOnUiThread(() -> { if (hud != null) hud.setTalking(false); }); }
+                });
                 ttsReady = true;
                 if (answered) speak();
             }
@@ -82,46 +94,79 @@ public class CallActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.setBackgroundColor(Color.parseColor("#1C1B19"));
-        root.setPadding(dp(24), dp(70), dp(24), dp(40));
+        GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.parseColor("#02060B"), Color.parseColor("#071A26"), Color.parseColor("#02060B")});
+        root.setBackground(bg);
+        root.setPadding(dp(20), dp(40), dp(20), dp(32));
 
-        TextView icon = text("📞", 64, "#FFFFFF", false);
-        TextView title = text("Clinto Request", 30, "#FFFFFF", true);
-        status = text("Incoming request call…", 16, "#E8641B", true);
+        TextView top = text("CLINTO  ·  SECURE LINE", 12, "#29D3FF", true);
+        top.setLetterSpacing(0.3f);
+
+        hud = new HudView(this);
+        hud.setLabel("CLINTO");
+        LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(dp(280), dp(280));
+        hlp.setMargins(0, dp(12), 0, dp(8));
+
+        title = text("INCOMING REQUEST", 24, "#FFFFFF", true);
+        title.setLetterSpacing(0.18f);
+        status = text("New customer is calling…", 15, "#E8641B", true);
 
         ScrollView sv = new ScrollView(this);
-        details = text("", 17, "#D9D3C7", false);
+        details = text("", 16, "#CFEFFF", false);
         details.setGravity(Gravity.START);
-        details.setPadding(dp(18), dp(16), dp(18), dp(16));
+        details.setTypeface(Typeface.MONOSPACE);
+        details.setLineSpacing(0, 1.25f);
+        details.setPadding(dp(18), dp(14), dp(18), dp(14));
         GradientDrawable box = new GradientDrawable();
-        box.setColor(Color.parseColor("#2B2A27"));
-        box.setCornerRadius(dp(16));
+        box.setColor(Color.parseColor("#CC071621"));
+        box.setCornerRadius(dp(18));
+        box.setStroke(dp(1), Color.parseColor("#6629D3FF"));
         details.setBackground(box);
         sv.addView(details);
         LinearLayout.LayoutParams svlp = new LinearLayout.LayoutParams(-1, 0, 1f);
-        svlp.setMargins(0, dp(28), 0, dp(28));
+        svlp.setMargins(0, dp(14), 0, dp(20));
 
         ringButtons = row();
-        ringButtons.addView(round("Decline", "#C0392B", v -> decline()));
+        ringButtons.addView(round("✕\nDecline", "#C0392B", v -> decline()));
         ringButtons.addView(space());
-        ringButtons.addView(round("Lift", "#2E8B57", v -> lift()));
+        Button liftBtn = round("✆\nLift", "#1FAF6A", v -> lift());
+        ringButtons.addView(liftBtn);
+        pulse(liftBtn);
 
         talkButtons = row();
-        talkButtons.addView(round("Repeat", "#E8641B", v -> speak()));
+        talkButtons.addView(round("↻\nRepeat", "#E8641B", v -> speak()));
         talkButtons.addView(space());
-        talkButtons.addView(round("Close", "#55524B", v -> finish()));
+        talkButtons.addView(round("✓\nClose", "#2B3A45", v -> finish()));
         talkButtons.setVisibility(View.GONE);
 
-        root.addView(icon);
+        root.addView(top);
+        root.addView(hud, hlp);
         root.addView(title);
         root.addView(status);
         root.addView(sv, svlp);
         root.addView(ringButtons);
         root.addView(talkButtons);
         setContentView(root);
+
+        // entrance animation
+        root.setAlpha(0f);
+        root.setScaleX(0.94f);
+        root.setScaleY(0.94f);
+        root.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(450).start();
+    }
+
+    private void pulse(View v) {
+        ObjectAnimator a = ObjectAnimator.ofPropertyValuesHolder(v,
+                PropertyValuesHolder.ofFloat("scaleX", 1f, 1.12f),
+                PropertyValuesHolder.ofFloat("scaleY", 1f, 1.12f));
+        a.setDuration(650);
+        a.setRepeatCount(ValueAnimator.INFINITE);
+        a.setRepeatMode(ValueAnimator.REVERSE);
+        a.start();
     }
 
     private void startRinging() {
+        if (hud != null) hud.setRinging(true);
         try {
             AudioManager am = getSystemService(AudioManager.class);
             am.setStreamVolume(AudioManager.STREAM_RING, am.getStreamMaxVolume(AudioManager.STREAM_RING), 0);
@@ -154,6 +199,8 @@ public class CallActivity extends Activity {
     private void lift() {
         answered = true;
         stopRinging();
+        if (hud != null) hud.setRinging(false);
+        title.setText("CONNECTED");
         status.setText("Reading the request…");
         ringButtons.setVisibility(View.GONE);
         talkButtons.setVisibility(View.VISIBLE);
@@ -247,14 +294,21 @@ public class CallActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setTextColor(Color.WHITE);
-        b.setTextSize(16);
+        b.setTextSize(14);
         b.setAllCaps(false);
         b.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setShape(GradientDrawable.OVAL);
-        bg.setColor(Color.parseColor(color));
-        b.setBackground(bg);
-        b.setLayoutParams(new LinearLayout.LayoutParams(dp(92), dp(92)));
+        int c = Color.parseColor(color);
+        GradientDrawable glow = new GradientDrawable();
+        glow.setShape(GradientDrawable.OVAL);
+        glow.setColor(Color.argb(60, Color.red(c), Color.green(c), Color.blue(c)));
+        GradientDrawable inner = new GradientDrawable();
+        inner.setShape(GradientDrawable.OVAL);
+        inner.setColor(c);
+        inner.setStroke(dp(2), Color.argb(200, 255, 255, 255));
+        LayerDrawable ld = new LayerDrawable(new android.graphics.drawable.Drawable[]{glow, inner});
+        ld.setLayerInset(1, dp(8), dp(8), dp(8), dp(8));
+        b.setBackground(ld);
+        b.setLayoutParams(new LinearLayout.LayoutParams(dp(100), dp(100)));
         b.setOnClickListener(l);
         return b;
     }
