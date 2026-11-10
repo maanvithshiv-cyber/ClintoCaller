@@ -10,7 +10,9 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.Settings;
+import android.text.InputType;
 import android.view.Gravity;
 import android.widget.Button;
 import android.widget.EditText;
@@ -20,15 +22,19 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
-/** Setup screen: give permissions, set the keyword, test the call. */
+import java.text.DateFormat;
+import java.util.Date;
+
+/** Setup screen: connect to Netlify, give permissions, test the call. */
 public class MainActivity extends Activity {
 
     private TextView status;
+    private SharedPreferences p;
 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
-        SharedPreferences p = CallHelper.prefs(this);
+        p = CallHelper.prefs(this);
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -36,7 +42,7 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.parseColor("#F7F2E9"));
 
         root.addView(label("Clinto Caller", 28, "#1C1B19", true));
-        root.addView(label("When a Clinto request mail arrives, your phone rings like a call. Lift it to hear the details.", 15, "#6E6A62", false));
+        root.addView(label("When a customer sends a request on clinto.online, your phone rings like a call. Lift it to hear the details.", 15, "#6E6A62", false));
 
         status = label("", 15, "#1C1B19", true);
         status.setPadding(dp(14), dp(12), dp(14), dp(12));
@@ -48,15 +54,50 @@ public class MainActivity extends Activity {
         slp.setMargins(0, dp(16), 0, dp(8));
         root.addView(status, slp);
 
-        root.addView(button("1. Allow notification access", "#1C1B19", v ->
-                startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))));
+        // --- Step 1: connect Netlify ---
+        root.addView(label("1. Connect to Netlify (one time)", 16, "#1C1B19", true));
+        root.addView(label("app.netlify.com → profile (top right) → User settings → Applications → Personal access tokens → New access token → copy and paste here.", 13, "#6E6A62", false));
+        EditText tok = new EditText(this);
+        tok.setHint("Paste Netlify token");
+        tok.setSingleLine(true);
+        tok.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        if (!p.getString(WatchService.KEY_TOKEN, "").isEmpty()) tok.setHint("Connected ✓ (paste a new token to change)");
+        root.addView(tok);
+        root.addView(button("Connect & start", "#E8641B", v -> {
+            String t = tok.getText().toString().trim();
+            if (t.isEmpty() && p.getString(WatchService.KEY_TOKEN, "").isEmpty()) {
+                Toast.makeText(this, "Paste the token first", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!t.isEmpty()) p.edit().putString(WatchService.KEY_TOKEN, t).remove(WatchService.KEY_SEEN).putBoolean("primed", false).apply();
+            status.setText("Connecting…");
+            new Thread(() -> {
+                int r = WatchService.checkOnce(this);
+                runOnUiThread(() -> {
+                    if (r == -2) {
+                        p.edit().remove(WatchService.KEY_TOKEN).apply();
+                        Toast.makeText(this, "Token did not work. Copy it again.", Toast.LENGTH_LONG).show();
+                    } else if (r == -1) {
+                        Toast.makeText(this, "No internet. Try again.", Toast.LENGTH_LONG).show();
+                    } else {
+                        tok.setText("");
+                        tok.setHint("Connected ✓ (paste a new token to change)");
+                        p.edit().putBoolean(CallHelper.KEY_ENABLED, true).apply();
+                        WatchService.start(this);
+                        Toast.makeText(this, "Connected! Watching for requests.", Toast.LENGTH_LONG).show();
+                    }
+                    refresh();
+                });
+            }).start();
+        }));
 
-        root.addView(button("2. Allow app notifications", "#1C1B19", v -> {
+        // --- Step 2: permissions ---
+        root.addView(label("2. Permissions", 16, "#1C1B19", true));
+        root.addView(button("Allow app notifications", "#1C1B19", v -> {
             if (Build.VERSION.SDK_INT >= 33) requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 7);
             else openAppSettings();
         }));
-
-        root.addView(button("3. Allow full screen calls", "#1C1B19", v -> {
+        root.addView(button("Allow full screen calls", "#1C1B19", v -> {
             if (Build.VERSION.SDK_INT >= 34) {
                 try {
                     startActivity(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
@@ -66,34 +107,35 @@ public class MainActivity extends Activity {
             }
             Toast.makeText(this, "Already allowed on this phone", Toast.LENGTH_SHORT).show();
         }));
-
-        root.addView(button("4. Don't stop in background (battery)", "#1C1B19", v -> {
-            try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
-            catch (Exception e) { openAppSettings(); }
+        root.addView(button("Keep running in background (battery)", "#1C1B19", v -> {
+            try {
+                startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:" + getPackageName())));
+            } catch (Exception e) {
+                try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); }
+                catch (Exception e2) { openAppSettings(); }
+            }
         }));
 
-        root.addView(label("Ring when a notification contains:", 14, "#6E6A62", true));
-        EditText kw = new EditText(this);
-        kw.setText(p.getString(CallHelper.KEY_KEYWORD, CallHelper.DEFAULT_KEYWORD));
-        kw.setSingleLine(true);
-        root.addView(kw);
-        root.addView(button("Save keyword", "#55524B", v -> {
-            p.edit().putString(CallHelper.KEY_KEYWORD, kw.getText().toString().trim()).apply();
-            Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
-        }));
-
+        // --- Step 3: on/off + test ---
+        root.addView(label("3. Test", 16, "#1C1B19", true));
         Switch on = new Switch(this);
         on.setText("Calls ON");
         on.setTextSize(16);
         on.setChecked(p.getBoolean(CallHelper.KEY_ENABLED, true));
-        on.setOnCheckedChangeListener((b, c) -> p.edit().putBoolean(CallHelper.KEY_ENABLED, c).apply());
+        on.setOnCheckedChangeListener((b, c) -> {
+            p.edit().putBoolean(CallHelper.KEY_ENABLED, c).apply();
+            if (c && !p.getString(WatchService.KEY_TOKEN, "").isEmpty()) WatchService.start(this);
+            if (!c) WatchService.stop(this);
+            refresh();
+        });
         LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-1, -2);
-        olp.setMargins(0, dp(14), 0, dp(6));
+        olp.setMargins(0, dp(8), 0, dp(6));
         root.addView(on, olp);
 
         root.addView(button("📞 Test call now", "#E8641B", v -> CallHelper.startCall(this,
-                "New Clinto request\nType: New software\nName: Ravi Kumar\nBusiness: Sri Lakshmi Kirana\n"
-                        + "Phone: 9876543210\nSoftware needed: Grocery Store\nDetails: 200 items, need billing")));
+                "Type: New software\nName: Ravi Kumar\nBusiness: Sri Lakshmi Kirana\n"
+                        + "Phone: 9876543210\nSoftware: Grocery Store\nDetails: 200 items, need billing")));
 
         ScrollView sv = new ScrollView(this);
         sv.addView(root);
@@ -103,18 +145,26 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        boolean listener = isListenerEnabled();
-        boolean notif = getSystemService(NotificationManager.class).areNotificationsEnabled();
-        boolean full = Build.VERSION.SDK_INT < 34 || getSystemService(NotificationManager.class).canUseFullScreenIntent();
-        status.setText((listener ? "✅" : "❌") + " Notification access\n"
-                + (notif ? "✅" : "❌") + " App notifications\n"
-                + (full ? "✅" : "❌") + " Full screen calls\n"
-                + (listener && notif && full ? "Ready! Clinto mails will ring like a call." : "Finish the steps below."));
+        if (!p.getString(WatchService.KEY_TOKEN, "").isEmpty() && p.getBoolean(CallHelper.KEY_ENABLED, true)) {
+            try { WatchService.start(this); } catch (Exception ignored) { }
+        }
+        refresh();
     }
 
-    private boolean isListenerEnabled() {
-        String flat = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        return flat != null && flat.contains(getPackageName());
+    private void refresh() {
+        boolean connected = !p.getString(WatchService.KEY_TOKEN, "").isEmpty();
+        boolean notif = getSystemService(NotificationManager.class).areNotificationsEnabled();
+        boolean full = Build.VERSION.SDK_INT < 34 || getSystemService(NotificationManager.class).canUseFullScreenIntent();
+        boolean battery = getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(getPackageName());
+        boolean on = p.getBoolean(CallHelper.KEY_ENABLED, true);
+        long last = p.getLong(WatchService.KEY_LAST, 0);
+        status.setText((connected ? "✅" : "❌") + " Connected to Netlify\n"
+                + (notif ? "✅" : "❌") + " App notifications\n"
+                + (full ? "✅" : "❌") + " Full screen calls\n"
+                + (battery ? "✅" : "⚠️") + " Background (battery)\n"
+                + (on ? "🟢 Calls ON" : "⚪ Calls OFF")
+                + (last > 0 ? "\nLast checked: " + DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(last)) : "")
+                + (connected && notif && full && on ? "\nReady! New requests will ring like a call." : ""));
     }
 
     private void openAppSettings() {
